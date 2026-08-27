@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  mobile    String?
+  role      String   @default("APPLICANT") // APPLICANT, OFFICER, ADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applicant Applicant?
+}
+
+model Applicant {
+  id              String   @id @default(uuid())
+  applicantId     String   @unique // e.g. MBA20260001
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  status          String   @default("Draft")
+  eligibility     String?  // ELIGIBLE, NOT ELIGIBLE
+  interviewStatus String?  // Interview Pending, Interview Scheduled, etc.
+  overallProgress Int      @default(10)
+  
+  application     Application?
+  documents       Document[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Application {
+  id                  String    @id @default(uuid())
+  applicantId         String    @unique
+  applicant           Applicant @relation(fields: [applicantId], references: [id])
+  
+  // Step 1: Personal
+  dob                 DateTime?
+  gender              String?
+  city                String?
+  state               String?
+  country             String?
+
+  // Step 2: Class 10
+  class10Board        String?
+  class10School       String?
+  class10Year         Int?
+  class10Percentage   Float?
+
+  // Step 3: Class 12
+  class12Board        String?
+  class12School       String?
+  class12Year         Int?
+  class12Percentage   Float?
+
+  // Step 4: Graduation
+  gradDegree          String?
+  gradSpecialization  String?
+  gradUniversity      String?
+  gradYear            Int?
+  gradPercentage      Float?
+
+  // Step 5: Entrance Exam
+  examName            String?
+  examYear            Int?
+  examScore           Float?
+  examPercentile      Float?
+
+  // Step 6: Work Experience
+  isExperienced       Boolean?
+  organization        String?
+  designation         String?
+  yearsOfExperience   Float?
+
+  // Step 7: Preferences
+  prefSpecialization  String?
+  careerGoal          String?
+  whyMba              String?
+  prefProgram         String?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model Document {
+  id              String    @id @default(uuid())
+  applicantId     String
+  applicant       Applicant @relation(fields: [applicantId], references: [id])
+  type            String    // 10th, 12th, Graduation, Entrance, Resume, Photo
+  url             String
+  status          String    @default("Uploaded") // Processing, Verified, Mismatch, Manual Verification Required
+  extractedData   String?   // JSON representation of extracted data
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model SystemSetting {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  value           String
+  description     String?
+}
+
+model InterviewSlot {
+  id              String   @id @default(uuid())
+  date            DateTime
+  startTime       String
+  endTime         String
+  interviewer     String
+  maxCandidates   Int
+  bookedCandidates Int     @default(0)
+  meetingUrl      String?  // Generated URL for Teams
+  status          String   @default("Available")
+}
+
+model Interview {
+  id              String         @id @default(uuid())
+  applicantId     String         
+  slotId          String
+  status          String         @default("Scheduled") // Scheduled, Completed, Cancelled, INTERVIEW EVALUATION PENDING, MANUAL REVIEW REQUIRED
+  consentGiven    Boolean        @default(false)
+  durationMins    Int?
+  transcript      String?        // JSON string of Q&A
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @default(now()) @updatedAt
+
+  evaluations     Evaluation[]
+}
+
+model Evaluation {
+  id              String         @id @default(uuid())
+  interviewId     String
+  interview       Interview      @relation(fields: [interviewId], references: [id])
+  version         Int            @default(1)
+  rubricVersion   String         @default("v1")
+  totalScore      Int
+  recommendation  String         // STRONGLY RECOMMENDED, RECOMMENDED, BORDERLINE, NOT RECOMMENDED
+  humanReviewReq  Boolean        @default(true)
+  modelUsed       String         @default("gpt-4-mock")
+  criteriaScores  String         // JSON string of scores and evidence
+  createdAt       DateTime       @default(now())
+}
+
+model AuditLog {
+  id              String    @id @default(uuid())
+  applicantId     String
+  action          String    // "EVALUATION_COMPLETED", "HUMAN_APPROVED", "HUMAN_REJECTED"
+  officerId       String?   // The human who made the decision
+  aiRecommendation String?
+  aiScore         Float?
+  reason          String?
+  createdAt       DateTime  @default(now())
+}
+
+model EmailLog {
+  id              String    @id @default(uuid())
+  applicantId     String
+  recipient       String
+  emailType       String    // "SELECTED", "REJECTED", "INTERVIEW_REMINDER", etc.
+  status          String    @default("DELIVERED") // PENDING, DELIVERED, FAILED
+  error           String?
+  isDemo          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+}
+
+model AgentActivityLog {
+  id              String    @id @default(uuid())
+  applicantId     String
+  agentName       String    // Document Verification, Eligibility, Evaluation, etc.
+  action          String
+  status          String    // SUCCESS, FAILED
+  details         String?
+  createdAt       DateTime  @default(now())
+}
+
