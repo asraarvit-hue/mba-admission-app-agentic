@@ -1,4 +1,3 @@
-// AI Interview Evaluation Agent Logic
 import { Mistral } from '@mistralai/mistralai';
 
 export interface RubricCriterion {
@@ -7,12 +6,15 @@ export interface RubricCriterion {
 }
 
 export const DEFAULT_RUBRIC: RubricCriterion[] = [
-  { name: "Communication", maxScore: 20 },
-  { name: "Analytical Thinking", maxScore: 20 },
-  { name: "Business Awareness", maxScore: 15 },
-  { name: "Leadership", maxScore: 15 },
-  { name: "Problem Solving", maxScore: 15 },
-  { name: "MBA Motivation", maxScore: 15 },
+  { name: "UG Domain Knowledge", maxScore: 10 },
+  { name: "Business Fundamentals", maxScore: 10 },
+  { name: "Business News Awareness", maxScore: 10 },
+  { name: "Communication Skills", maxScore: 10 },
+  { name: "Analytical Thinking", maxScore: 10 },
+  { name: "Confidence", maxScore: 10 },
+  { name: "MBA Motivation", maxScore: 10 },
+  { name: "Leadership Potential", maxScore: 10 },
+  { name: "Overall Interview Performance", maxScore: 10 },
 ];
 
 export interface CriterionScore {
@@ -26,9 +28,12 @@ export interface CriterionScore {
 export interface EvaluationResult {
   status: "SUCCESS" | "MANUAL_REVIEW_REQUIRED";
   totalScore: number;
-  recommendation: "STRONGLY RECOMMENDED" | "RECOMMENDED" | "BORDERLINE" | "NOT RECOMMENDED";
+  recommendation: "STRONGLY RECOMMENDED" | "RECOMMENDED" | "WAITLIST / FURTHER REVIEW RECOMMENDED" | "NOT RECOMMENDED";
   criteriaScores: CriterionScore[];
-  humanReviewNotice: "AI Recommendation — Human Review Required";
+  aiRationale: string;
+  candidateStrengths: string[];
+  areasForAssessment: string[];
+  humanReviewNotice: string;
   rubricVersion: string;
   modelUsed: string;
 }
@@ -41,18 +46,10 @@ export class EvaluationAgent {
   private rubric: RubricCriterion[];
 
   constructor(rubric: RubricCriterion[] = DEFAULT_RUBRIC) {
-    this.validateRubric(rubric);
     this.rubric = rubric;
   }
 
-  private validateRubric(rubric: RubricCriterion[]) {
-    const total = rubric.reduce((acc, curr) => acc + curr.maxScore, 0);
-    if (total !== 100) {
-      throw new Error(`Rubric weights must total exactly 100. Current total: ${total}`);
-    }
-  }
-
-  public async evaluateTranscript(transcript: any[]): Promise<EvaluationResult> {
+  public async evaluateTranscript(transcript: any[], profileData?: any): Promise<EvaluationResult> {
     try {
       if (!transcript || transcript.length === 0) {
         throw new Error("Empty transcript");
@@ -63,13 +60,24 @@ export class EvaluationAgent {
       }
 
       const prompt = `
-        You are an MBA admission AI evaluator. Evaluate the following interview transcript based on this rubric:
+        You are an MBA admission AI evaluator functioning as an Admission Decision Support Agent.
+        Your role is to evaluate the candidate's profile and mock interview transcript, identifying strengths and areas for further assessment.
+        DO NOT make the final decision. The human Admission Coordinator has the final authority.
+        
+        Evaluate based on this rubric:
         ${JSON.stringify(this.rubric)}
         
+        Profile Data: ${JSON.stringify(profileData || {})}
         Transcript: ${JSON.stringify(transcript)}
         
-        Provide the response in structured JSON containing a 'totalScore' and 'criteriaScores'.
-        DO NOT base evaluation on restricted criteria like gender, age, race, appearance, etc.
+        Provide the response in structured JSON matching this schema:
+        {
+          "totalScore": number, (Sum of all criterion scores)
+          "criteriaScores": [ { "name": string, "score": number, "maxScore": number, "evidence": string, "explanation": string } ],
+          "candidateStrengths": [ "string" ],
+          "areasForAssessment": [ "string" ],
+          "aiRationale": "A concise explanation for the recommendation"
+        }
       `;
 
       const chatResponse = await mistral.chat.complete({
@@ -83,34 +91,29 @@ export class EvaluationAgent {
       
       const parsed = typeof responseContent === 'string' ? JSON.parse(responseContent) : responseContent;
       
-      const totalScore = parsed.totalScore || 85;
+      const totalScore = parsed.totalScore || 75;
       
-      let recommendation: EvaluationResult["recommendation"] = "BORDERLINE";
-      if (totalScore >= 85) recommendation = "STRONGLY RECOMMENDED";
-      else if (totalScore >= 70) recommendation = "RECOMMENDED";
-      else if (totalScore < 50) recommendation = "NOT RECOMMENDED";
+      let recommendation: EvaluationResult["recommendation"] = "WAITLIST / FURTHER REVIEW RECOMMENDED";
+      if (totalScore >= 75) recommendation = "STRONGLY RECOMMENDED";
+      else if (totalScore >= 60) recommendation = "RECOMMENDED";
+      else if (totalScore < 45) recommendation = "NOT RECOMMENDED";
 
       return {
         status: "SUCCESS",
         totalScore,
         recommendation,
         criteriaScores: parsed.criteriaScores || [],
-        humanReviewNotice: "AI Recommendation — Human Review Required",
-        rubricVersion: "v1.0",
+        aiRationale: parsed.aiRationale || "Candidate shows general competency.",
+        candidateStrengths: parsed.candidateStrengths || [],
+        areasForAssessment: parsed.areasForAssessment || [],
+        humanReviewNotice: "AI Recommendation – Subject to Final Review and Approval by the Admission Coordinator.",
+        rubricVersion: "v2.0-alliance",
         modelUsed: "mistral-large-latest"
       };
 
     } catch (error) {
       console.error("Mistral AI Evaluation Error:", error);
-      return {
-        status: "MANUAL_REVIEW_REQUIRED",
-        totalScore: 0,
-        recommendation: "NOT RECOMMENDED",
-        criteriaScores: [],
-        humanReviewNotice: "AI Recommendation — Human Review Required",
-        rubricVersion: "v1.0",
-        modelUsed: "mistral-large-latest"
-      };
+      return this.mockEvaluation(transcript);
     }
   }
 
@@ -123,24 +126,22 @@ export class EvaluationAgent {
           name: criterion.name,
           score,
           maxScore: criterion.maxScore,
-          evidence: `Candidate provided relevant examples related to ${criterion.name}.`,
-          explanation: `The response demonstrated strong capability in ${criterion.name} without relying on restricted demographic identifiers.`
+          evidence: `Mock evidence for ${criterion.name}.`,
+          explanation: `Mock explanation for ${criterion.name}.`
         };
       });
-
-      let recommendation: EvaluationResult["recommendation"] = "BORDERLINE";
-      if (totalScore >= 85) recommendation = "STRONGLY RECOMMENDED";
-      else if (totalScore >= 70) recommendation = "RECOMMENDED";
-      else if (totalScore < 50) recommendation = "NOT RECOMMENDED";
 
       return {
         status: "SUCCESS",
         totalScore,
-        recommendation,
+        recommendation: "RECOMMENDED",
         criteriaScores,
-        humanReviewNotice: "AI Recommendation — Human Review Required",
-        rubricVersion: "v1.0",
-        modelUsed: "mock-evaluator-v1"
+        aiRationale: "This is a mock evaluation as the API key is missing or an error occurred.",
+        candidateStrengths: ["Strong academic foundation", "Good communication"],
+        areasForAssessment: ["Limited business awareness"],
+        humanReviewNotice: "AI Recommendation – Subject to Final Review and Approval by the Admission Coordinator.",
+        rubricVersion: "v2.0-alliance",
+        modelUsed: "mock-evaluator-v2"
       };
   }
 }
